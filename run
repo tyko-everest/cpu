@@ -1,0 +1,8 @@
+#!/bin/sh
+if [ $# -eq 0 ]
+  then
+    echo "No output file given"
+fi
+iverilog -o "$1".vvp "$1"_tb.v
+vvp "$1".vvp
+gtkwave.exe test.vcd
