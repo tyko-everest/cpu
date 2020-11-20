@@ -15,5 +15,4 @@ module cmp (
             3'b111:         q <= a >= b; // GEU
         endcase
     end
-
 endmodule

@@ -1,6 +1,6 @@
 module rom (
-    output reg [31:0] q,
-    input [15:0] a,
+    output reg [31:0] data,
+    input [15:0] addr,
     input clk
 );
     
@@ -14,7 +14,7 @@ module rom (
     end
 
     always @(posedge clk ) begin
-        q <= {mem[a+3], mem[a+2], mem[a+1], mem[a]};
+        data <= {mem[addr+3], mem[addr+2], mem[addr+1], mem[addr]};
     end
 
 endmodule

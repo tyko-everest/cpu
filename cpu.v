@@ -2,12 +2,12 @@
 `include "cmp.v"
 `include "pc_block.v"
 `include "regfile.v"
+`include "ram.v"
 `include "rom.v"
+
 module cpu(
     input wire clk
 );
-
-    reg [31:0] mar, mdr;
 
     // used to tell the pc whether to branch and if so where to
     wire take_branch;
@@ -22,6 +22,33 @@ module cpu(
     wire [2:0] funct3;
     wire [31:0] immI, immS, immB, immU, immJ;
 
+    // alu buses
+    reg [31:0] alu_a, alu_b;
+    wire [31:0] alu_q;
+    reg [2:0] alu_mode;
+
+    // cmp buses
+    reg [31:0] cmp_a, cmp_b;
+    wire cmp_q;
+    reg [2:0] cmp_mode;
+
+    // reg buses
+    reg [31:0] reg_d;
+    wire [31:0] reg_s1, reg_s2;
+    // register selects always come straight from the machine code
+    reg reg_wen;
+
+    // rom buses
+    wire [31:0] rom_out;
+    reg [15:0] rom_addr;
+
+    // ram buses
+    reg [31:0] ram_in;
+    wire [31:0] ram_out;
+    reg [15:0] ram_addr;
+    reg ram_wen;
+
+
     assign opcode = ir[6:0];
     assign rd = ir[11:7];
     assign rs1 = ir[19:15];
@@ -32,29 +59,23 @@ module cpu(
     assign immI = {{21{ir[31]}}, ir[30:20]};
     assign immS = {{21{ir[31]}}, ir[30:25], ir[11:7]};
     assign immB = {{20{ir[31]}}, ir[7], ir[30:25], ir[11:8], 1'b0};
-    assign immU = {{13{ir[31]}}, ir[30:12]};
+    assign immU = {ir[31:12], 12'b0};
     assign immJ = {{12{ir[31]}}, ir[19:12], ir[20], ir[30:21], 1'b0};
 
 
-    // alu buses
-    reg [31:0] alu_a, alu_b;
-    reg [2:0] alu_funct3;
-    wire [31:0] alu_q;
-    // cmp buses
-    wire cmp_q;
-    // reg buses
-    wire [31:0] reg_s1, reg_s2, reg_d;
-    wire reg_wen;
-
-
-    // eventually this will be outside the cpu
-    wire [31:0] rom_out;
     rom rom (
-        .q(rom_out),
-        .a(pc[15:0]),
+        .data(rom_out),
+        .addr(rom_addr),
         .clk(clk)
     );
-
+    
+    ram ram (
+        .out(ram_out),
+        .in(ram_in),
+        .addr(ram_addr),
+        .wen(ram_wen),
+        .clk(clk)
+    );
 
     regfile regfile (
         .d(reg_d),
@@ -88,16 +109,14 @@ module cpu(
         .a(alu_a),
         .b(alu_b),
         .q(alu_q),
-        .opcode(opcode),
-        .funct3(alu_funct3),
-        .funct7(funct7)
+        .mode(alu_mode)
     );
 
     cmp cmp (
-        .a(reg_s1),
-        .b(reg_s2),
+        .a(cmp_a),
+        .b(cmp_b),
         .q(cmp_q),
-        .mode(funct3)
+        .mode(cmp_mode)
     );
 
     // functions handled by the alu
@@ -107,29 +126,118 @@ module cpu(
             7'b0110011: begin 
                 alu_a <= reg_s1;
                 alu_b <= reg_s2;
-                alu_funct3 <= funct3;
+                // TODO maybe optimize some of these if elses into bitshifts
+                // and masks, not sure how this all gets optimized
+                if (funct3 == 3'b000) begin
+                    if (funct7[5]) begin
+                        alu_mode <= 3'b010;
+                    end else begin
+                        alu_mode <= funct3;
+                    end
+                end else if (funct3 == 3'b101) begin
+                    if (funct7[5]) begin
+                        alu_mode <= 3'b011;
+                    end else begin
+                        alu_mode <= funct3;
+                    end
+                end else begin
+                    alu_mode <= funct3;
+                end
             end
-            // math imm and stores
-            7'b0010011, 7'b0000011: begin
+            // math imm
+            7'b0010011: begin
                 alu_a <= reg_s1;
                 alu_b <= immI;
-                alu_funct3 <= funct3;
+                if (funct3 == 3'b101) begin
+                    if (funct7[5]) begin
+                        alu_mode <= 3'b011;
+                    end else begin
+                        alu_mode <= funct3;
+                    end
+                end else begin
+                    alu_mode <= funct3;
+                end
             end
             // loads
+            7'b0000011: begin
+                alu_a <= reg_s1;
+                alu_b <= immI;
+                alu_mode <= 3'b000;
+            end
+            // stores
             7'b0100011: begin
                 alu_a <= reg_s1;
                 alu_b <= immS;
+                alu_mode <= 3'b000;
             end
             // branches
             7'b1100011: begin
                 alu_a <= pc;
                 alu_b <= immB;
+                alu_mode <= 3'b000;
+            end
+            // LUI
+            7'b0110111: begin
+                // TODO maybe make this from x0 instead
+                alu_a <= 32'b0;
+                alu_b <= immU;
+                alu_mode <= 3'b000;
+            end
+            // AUIPC
+            7'b0010111: begin
+                alu_a <= pc;
+                alu_b <= immU;
+                alu_mode <= 3'b000;
+            end
+            // JAL
+            7'b1101111: begin
+                alu_a <= pc;
+                alu_b <= immJ;
+                alu_mode <= 3'b000;
+            end
+            // JALR
+            7'b1100111: begin
+                alu_a <= reg_s1;
+                alu_b <= immI;
+                alu_mode <= 3'b000;
             end
         endcase
     end
 
-    // functions handled by the comparison unit (branches)
+    // functions handled by the comparison unit
     always @(*) begin
+        cmp_a <= reg_s1;
+        case (opcode)
+            // branches and reg compares
+            7'b1100011, 7'b0110011: begin
+                cmp_b <= reg_s2;
+            end
+            // imm compares
+            7'b0010011: begin
+                cmp_b <= immI;
+            end
+        endcase
+    end
+
+
+    /* MEM READ/WRITE */
+    // TODO all instructions load/store word for now
+    // TODO ony read when necessary
+    always @(posedge clk) begin
+        ram_addr <= alu_q;
+        case (opcode)
+            7'b0100011: begin
+                ram_wen <= 1;
+            end
+            default: begin
+                ram_wen <= 0;
+            end
+        endcase
+    end
+
+
+    /* WRITE BACK */
+    always @(posedge clk) begin
         
     end
 
