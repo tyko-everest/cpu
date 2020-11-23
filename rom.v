@@ -13,7 +13,7 @@ module rom (
         mem[3] = 8'hFF;
     end
 
-    always @(posedge clk ) begin
+    always @(posedge clk) begin
         data <= {mem[addr+3], mem[addr+2], mem[addr+1], mem[addr]};
     end
 
