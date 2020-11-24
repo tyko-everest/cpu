@@ -8,13 +8,14 @@ module cpu(
     input wire clk
 );
 
+    localparam [31:0] NOP_INSTR = 32'h00000013;
+
     // used to tell the pc whether to branch and if so where to
-    wire take_branch;
+    reg take_branch;
     reg [31:0] branch_addr;
     
     // represent the flow of instruction data along the pipeline
-    wire [31:0] ir_exec;
-    reg [31:0] ir_wb;
+    reg [31:0] ir_exec, ir_wb;
     reg [31:0] pc_fetch, pc_exec;
 
     // break up the instruction into its components for the exec stage
@@ -74,7 +75,7 @@ module cpu(
     assign immJ = {{12{ir_exec[31]}}, ir_exec[19:12], ir_exec[20], ir_exec[30:21], 1'b0};
 
     rom rom (
-        .data(ir_exec),
+        .data(rom_out),
         .addr(pc_fetch[15:0]),
         .clk(clk)
     );
@@ -109,9 +110,21 @@ module cpu(
         end
     end
 
+    // should only pass pc and instr down pipeline if not branching
     always @(posedge clk) begin
-        // pass address of instruction down pipeline
-        pc_exec <= pc_fetch;
+        if (take_branch) begin
+            pc_exec <= NOP_INSTR;
+        end else begin
+            pc_exec <= pc_fetch;
+        end
+    end
+
+    always @(*) begin
+        if (take_branch) begin
+            ir_exec <= NOP_INSTR;
+        end else begin
+            ir_exec <= rom_out;
+        end
     end
 
 
@@ -241,6 +254,23 @@ module cpu(
                 cmp_b <= immI;
             end
         endcase
+    end
+
+    // decide if a branch or jump will be taken
+    always @(posedge clk) begin
+        case (opcode_exec)
+            7'b1101111, 7'b1100111: begin
+                take_branch <= 1;
+            end
+            7'b1100011: begin
+                take_branch <= cmp_q;
+            end
+            default: begin
+                take_branch <= 0;
+            end
+        endcase
+        // this can be passed into register either way
+        branch_addr <= alu_q;
     end
 
     // decide what to clock into the buffer register

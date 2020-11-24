@@ -10,7 +10,7 @@ module tb;
         $dumpfile("test.vcd");
         $dumpvars;
         clk = 0;
-        #20;
+        #120;
         $finish;
     end
 
