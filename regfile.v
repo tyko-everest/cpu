@@ -21,4 +21,9 @@ module regfile(s1, s2, d, s1sel, s2sel, dsel, wen, clk);
             regs[dsel] <= d;
     end
 
+    // debugging
+    always @(posedge clk) begin
+        $display("t0: %H, t1: %H, t2: %H, t3: %H", regs[5], regs[6], regs[7], regs[28]);
+    end
+
 endmodule

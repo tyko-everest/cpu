@@ -7,6 +7,15 @@ module ram (
     
     reg [7:0] mem [2**16-1:0];
 
+    // testing with certain values defined initially
+    initial begin
+        mem[4] = 1;
+        mem[5] = 2;
+        mem[6] = 3;
+        mem[7] = 4;
+    end
+
+
     // TODO this always writes/reads addr word
     always @(posedge clk) begin
         if (wen) begin

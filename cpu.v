@@ -1,6 +1,5 @@
 `include "alu.v"
 `include "cmp.v"
-`include "pc_block.v"
 `include "regfile.v"
 `include "ram.v"
 `include "rom.v"
@@ -14,9 +13,9 @@ module cpu(
     reg [31:0] branch_addr;
     
     // represent the flow of instruction data along the pipeline
-    reg [31:0] ir_exec, ir_wb;
-    wire [31:0] pc_fetch;
-    reg [31:0] pc_exec;
+    wire [31:0] ir_exec;
+    reg [31:0] ir_wb;
+    reg [31:0] pc_fetch, pc_exec;
 
     // break up the instruction into its components for the exec stage
     wire [6:0] opcode_exec, opcode_wb, funct7;
@@ -54,6 +53,8 @@ module cpu(
     reg [15:0] ram_addr;
     reg ram_wen;
 
+    initial pc_fetch = 0;
+
     // these are used in the execution stage
     assign opcode_exec = ir_exec[6:0];
     assign rs1 = ir_exec[19:15];
@@ -73,7 +74,7 @@ module cpu(
     assign immJ = {{12{ir_exec[31]}}, ir_exec[19:12], ir_exec[20], ir_exec[30:21], 1'b0};
 
     rom rom (
-        .data(rom_out),
+        .data(ir_exec),
         .addr(pc_fetch[15:0]),
         .clk(clk)
     );
@@ -100,16 +101,15 @@ module cpu(
 
     /* FETCH */
     // increment or branch
-    pc_block pc_block (
-        .addr(branch_addr),
-        .branch(take_branch),
-        .clk(clk),
-        .pc(pc_fetch)
-    );
+    always @(posedge clk) begin
+        if (take_branch) begin
+            pc_fetch <= branch_addr;
+        end else begin
+            pc_fetch <= pc_fetch + 4;
+        end
+    end
 
     always @(posedge clk) begin
-        // get instruction from rom
-        ir_exec <= rom_out;
         // pass address of instruction down pipeline
         pc_exec <= pc_fetch;
     end
@@ -131,7 +131,7 @@ module cpu(
     );
 
     // decide whether rs1 is selected from opcode_exec or overriden to 0
-    // needed in LUI so imm directly passed through by adding 0 
+    // needed in LUI so imm directly passed through, i.e. adding to 0 
     always @(*) begin
         case (opcode_exec)
             7'b0110111: begin
@@ -202,8 +202,7 @@ module cpu(
             end
             // LUI
             7'b0110111: begin
-                // TODO maybe make this from x0 instead
-                alu_a <= 32'b0;
+                alu_a <= reg_s1;
                 alu_b <= immU;
                 alu_mode <= 3'b000;
             end
@@ -230,6 +229,7 @@ module cpu(
 
     // functions handled by the comparison unit
     always @(*) begin
+        cmp_mode <= funct3;
         cmp_a <= reg_s1;
         case (opcode_exec)
             // branches and reg compares
@@ -259,11 +259,11 @@ module cpu(
     end
 
     // dealing with what to pass to ram
-    always @(posedge clk) begin
+    always @(*) begin
         // data line will only ever be from rs2
         ram_in <= reg_s2;
-        // address will only ever be from rs1
-        ram_addr <= reg_s1;
+        // address from alu, result of rs1 + imm
+        ram_addr <= alu_q;
 
         // decide if this is a write or a read / nothing
         case (opcode_exec)
@@ -279,13 +279,18 @@ module cpu(
 
 
     /* WRITE BACK */
-    always @(posedge clk) begin
+    always @(*) begin
         case (opcode_wb)
-            7'b0010011, 7'b0110011: begin
-                reg_d <= alu_q;
+            7'b0010011, 7'b0110011, 7'b0110111, 7'b0010111: begin
+                reg_wen <= 1;
+                reg_d <= exec_out;
             end
             7'b0000011: begin
+                reg_wen <= 1;
                 reg_d <= ram_out;
+            end
+            default: begin
+                reg_wen <= 0;
             end
         endcase
     end

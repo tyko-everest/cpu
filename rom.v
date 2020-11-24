@@ -7,10 +7,7 @@ module rom (
     reg [7:0] mem [2**16-1:0];
 
     initial begin
-        mem[0] = 8'h13;
-        mem[1] = 0;
-        mem[2] = 8'hF0;
-        mem[3] = 8'hFF;
+        `include "build/test.rom"
     end
 
     always @(posedge clk) begin
