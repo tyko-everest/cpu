@@ -118,13 +118,9 @@ module cpu(
         pc_exec <= pc_fetch;
     end
 
-// should only pass instr down pipeline if not branching
+    // instructions are always from rom
     always @(*) begin
-        if (take_branch) begin
-            ir_exec <= NOP_INSTR;
-        end else begin
-            ir_exec <= rom_out;
-        end
+        ir_exec <= rom_out;
     end
 
 
@@ -271,7 +267,7 @@ module cpu(
     end
 
     // decide if a branch or jump will be taken
-    always @(posedge clk) begin
+    always @(*) begin
         case (opcode_exec)
             7'b1101111, 7'b1100111: begin
                 take_branch <= 1;
@@ -283,7 +279,6 @@ module cpu(
                 take_branch <= 0;
             end
         endcase
-        // this can be passed into register either way
         branch_addr <= alu_q;
     end
 
@@ -332,6 +327,11 @@ module cpu(
             7'b0000011: begin
                 reg_wen <= 1;
                 reg_d <= ram_out;
+            end
+            7'b1101111, 7'b1100111: begin
+                reg_wen <=1;
+                // this will already have been incremented to the next instr
+                reg_d <= pc_exec;
             end
             default: begin
                 reg_wen <= 0;
