@@ -24,6 +24,10 @@ module cpu(
     wire [2:0] funct3;
     wire [31:0] immI, immS, immB, immU, immJ;
 
+    // used to select either regfile as input to alu and cmp unit
+    // or if they need to be bypassed from a reg write that is yet to happen
+    reg [31:0] s1, s2;
+
     // alu buses
     reg [31:0] alu_a, alu_b;
     wire [31:0] alu_q;
@@ -110,15 +114,11 @@ module cpu(
         end
     end
 
-    // should only pass pc and instr down pipeline if not branching
     always @(posedge clk) begin
-        if (take_branch) begin
-            pc_exec <= NOP_INSTR;
-        end else begin
-            pc_exec <= pc_fetch;
-        end
+        pc_exec <= pc_fetch;
     end
 
+// should only pass instr down pipeline if not branching
     always @(*) begin
         if (take_branch) begin
             ir_exec <= NOP_INSTR;
@@ -156,13 +156,27 @@ module cpu(
         endcase
     end
 
+    // decide if a bypass from the current write back stage is needed
+    always @(*) begin
+        if (reg_wen && (rs1 == rd)) begin
+            s1 <= reg_d;
+        end else begin
+            s1 <= reg_s1;
+        end
+        if (reg_wen && (rs2 == rd)) begin
+            s2 <= reg_d;
+        end else begin
+            s2 <= reg_s2;
+        end
+    end
+
     // functions handled by the alu
     always @(*) begin
         case (opcode_exec)
             // math reg
             7'b0110011: begin 
-                alu_a <= reg_s1;
-                alu_b <= reg_s2;
+                alu_a <= s1;
+                alu_b <= s2;
                 // TODO maybe optimize some of these if elses into bitshifts
                 // and masks, not sure how this all gets optimized
                 if (funct3 == 3'b000) begin
@@ -183,7 +197,7 @@ module cpu(
             end
             // math imm
             7'b0010011: begin
-                alu_a <= reg_s1;
+                alu_a <= s1;
                 alu_b <= immI;
                 if (funct3 == 3'b101) begin
                     if (funct7[5]) begin
@@ -197,13 +211,13 @@ module cpu(
             end
             // loads
             7'b0000011: begin
-                alu_a <= reg_s1;
+                alu_a <= s1;
                 alu_b <= immI;
                 alu_mode <= 3'b000;
             end
             // stores
             7'b0100011: begin
-                alu_a <= reg_s1;
+                alu_a <= s1;
                 alu_b <= immS;
                 alu_mode <= 3'b000;
             end
@@ -215,7 +229,7 @@ module cpu(
             end
             // LUI
             7'b0110111: begin
-                alu_a <= reg_s1;
+                alu_a <= s1;
                 alu_b <= immU;
                 alu_mode <= 3'b000;
             end
@@ -233,7 +247,7 @@ module cpu(
             end
             // JALR
             7'b1100111: begin
-                alu_a <= reg_s1;
+                alu_a <= s1;
                 alu_b <= immI;
                 alu_mode <= 3'b000;
             end
@@ -243,11 +257,11 @@ module cpu(
     // functions handled by the comparison unit
     always @(*) begin
         cmp_mode <= funct3;
-        cmp_a <= reg_s1;
+        cmp_a <= s1;
         case (opcode_exec)
             // branches and reg compares
             7'b1100011, 7'b0110011: begin
-                cmp_b <= reg_s2;
+                cmp_b <= s2;
             end
             // imm compares
             7'b0010011: begin
@@ -291,7 +305,7 @@ module cpu(
     // dealing with what to pass to ram
     always @(*) begin
         // data line will only ever be from rs2
-        ram_in <= reg_s2;
+        ram_in <= s2;
         // address from alu, result of rs1 + imm
         ram_addr <= alu_q;
 

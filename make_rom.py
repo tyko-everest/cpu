@@ -4,7 +4,7 @@ import sys
 import struct
 
 # make the assembler file
-os.system("riscv64-unknown-linux-gnu-as -o build/test.elf {}".format(sys.argv[1]))
+os.system("riscv64-unknown-linux-gnu-as -march=rv32i -o build/test.elf {}".format(sys.argv[1]))
 # make a raw binary file
 os.system("riscv64-unknown-linux-gnu-objcopy -O binary build/test.elf build/test.bin")
 
