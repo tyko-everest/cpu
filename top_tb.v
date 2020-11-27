@@ -1,16 +1,18 @@
-`include "cpu.v"
+`include "top.v"
 
 module tb;
 
     reg clk;
 
-    cpu cpu(clk);
+    top top (
+        .CLK(clk)
+    );
 
     initial begin
         $dumpfile("test.vcd");
         $dumpvars;
         clk = 0;
-        #100;
+        #80;
         $finish;
     end
 

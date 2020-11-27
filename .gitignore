@@ -1,4 +1,5 @@
 *.vvp
 *.vcd
 *.o
+*.log
 build/

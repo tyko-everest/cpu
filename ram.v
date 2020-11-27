@@ -1,30 +1,26 @@
-module ram (
-    output reg [31:0] out,
-    input [31:0] in,
-    input [15:0] addr,
-    input wen, clk
+module ram #(
+    parameter ADDR_WIDTH = 10,
+    parameter DATA_WIDTH = 32
+) (
+    output wire [DATA_WIDTH-1:0] out,
+    input wire [DATA_WIDTH-1:0] in,
+    input wire [ADDR_WIDTH-1:0] addr,
+    input wire wen, clk
 );
-    
-    reg [7:0] mem [2**16-1:0];
-
-    // testing with certain values defined initially
-    initial begin
-        mem[4] = 1;
-        mem[5] = 2;
-        mem[6] = 3;
-        mem[7] = 4;
-    end
-
+    // takes in 10 bit byte address, then ignores last two bits
+    // so treated like 8 bit word addressable memory
+    reg [ADDR_WIDTH-1:0] raddr;
+    // 1 KiB of ram organized in 32 bit words
+    reg [DATA_WIDTH:0] mem [(1<<ADDR_WIDTH)-1:0];
 
     // TODO this always writes/reads addr word
     always @(posedge clk) begin
         if (wen) begin
-            mem[addr] <= in[7:0];
-            mem[addr + 1] <= in[15:8];
-            mem[addr + 2] <= in[23:16];
-            mem[addr + 3] <= in[31:24];
-        end else begin
-            out <= {mem[addr + 3], mem[addr + 2], mem[addr + 1], mem[addr]};
+            mem[addr[9:2]] <= in;
         end
+        raddr <= addr;
     end
+
+    assign out = mem[raddr[9:2]];
+
 endmodule

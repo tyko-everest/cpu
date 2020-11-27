@@ -1,3 +1,5 @@
+`default_nettype none
+
 `include "alu.v"
 `include "cmp.v"
 `include "regfile.v"
@@ -5,7 +7,15 @@
 `include "rom.v"
 
 module cpu(
-    input wire clk
+    input wire clk,
+    // data bus connections
+    output reg [15:0] dbus_addr, 
+    output reg [31:0] dbus_write,
+    input wire [31:0] dbus_read,
+    output reg dbus_wen,
+    // instruction bus connections
+    output reg [15:0] ibus_addr,
+    input wire [31:0] ibus_read
 );
 
     localparam [31:0] NOP_INSTR = 32'h00000013;
@@ -18,7 +28,7 @@ module cpu(
     reg [31:0] ir_exec, ir_wb;
     reg [31:0] pc_fetch, pc_exec;
 
-    // break up the instruction into its components for the exec stage
+    // break up the instruction into its components for the exec and wb stages
     wire [6:0] opcode_exec, opcode_wb, funct7;
     wire [4:0] rd, rs1, rs2;
     wire [2:0] funct3;
@@ -48,16 +58,6 @@ module cpu(
     // rs2 selects always come straight from the machine code
     reg reg_wen;
 
-    // rom buses
-    wire [31:0] rom_out;
-    reg [15:0] rom_addr;
-
-    // ram buses
-    reg [31:0] ram_in;
-    wire [31:0] ram_out;
-    reg [15:0] ram_addr;
-    reg ram_wen;
-
     initial pc_fetch = 0;
 
     // these are used in the execution stage
@@ -77,20 +77,6 @@ module cpu(
     assign immB = {{20{ir_exec[31]}}, ir_exec[7], ir_exec[30:25], ir_exec[11:8], 1'b0};
     assign immU = {ir_exec[31:12], 12'b0};
     assign immJ = {{12{ir_exec[31]}}, ir_exec[19:12], ir_exec[20], ir_exec[30:21], 1'b0};
-
-    rom rom (
-        .data(rom_out),
-        .addr(pc_fetch[15:0]),
-        .clk(clk)
-    );
-    
-    ram ram (
-        .out(ram_out),
-        .in(ram_in),
-        .addr(ram_addr),
-        .wen(ram_wen),
-        .clk(clk)
-    );
 
     regfile regfile (
         .d(reg_d),
@@ -114,13 +100,15 @@ module cpu(
         end
     end
 
-    always @(posedge clk) begin
-        pc_exec <= pc_fetch;
+    // these are esentially just renamed internally
+    always @(*) begin
+        ir_exec <= ibus_read;
+        ibus_addr <= pc_fetch;
     end
 
-    // instructions are always from rom
-    always @(*) begin
-        ir_exec <= rom_out;
+    // pass pc down the pipeline
+    always @(posedge clk) begin
+        pc_exec <= pc_fetch;
     end
 
 
@@ -300,14 +288,14 @@ module cpu(
     // dealing with what to pass to ram
     always @(*) begin
         // data line will only ever be from rs2
-        ram_in <= s2;
+        dbus_write <= s2;
         // address from alu, result of rs1 + imm
-        ram_addr <= alu_q;
+        dbus_addr <= alu_q;
 
         // decide if this is a write or a read / nothing
         case (opcode_exec)
-            7'b0100011: ram_wen <= 1; 
-            default: ram_wen <= 0;
+            7'b0100011: dbus_wen <= 1; 
+            default: dbus_wen <= 0;
         endcase
     end
 
@@ -326,7 +314,7 @@ module cpu(
             end
             7'b0000011: begin
                 reg_wen <= 1;
-                reg_d <= ram_out;
+                reg_d <= dbus_read;
             end
             7'b1101111, 7'b1100111: begin
                 reg_wen <=1;

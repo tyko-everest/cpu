@@ -1,10 +1,10 @@
 module rom (
     output reg [31:0] data,
-    input [15:0] addr,
+    input [7:0] addr,
     input clk
 );
     
-    reg [7:0] mem [2**16-1:0];
+    reg [7:0] mem [2**8-1:0];
 
     initial begin
         `include "build/test.rom"
