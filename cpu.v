@@ -2,6 +2,7 @@
 
 `include "alu.v"
 `include "cmp.v"
+`include "muldiv.v"
 `include "regfile.v"
 `include "ram.v"
 `include "rom.v"
@@ -47,6 +48,9 @@ module cpu(
     reg [31:0] cmp_a, cmp_b;
     wire cmp_q;
     reg [2:0] cmp_mode;
+
+    // muldiv buses
+    wire [31:0] muldiv_q;
 
     // execute output bus, used for input to buffer reg in write back
     reg [31:0] exec_out;
@@ -125,6 +129,13 @@ module cpu(
         .b(cmp_b),
         .q(cmp_q),
         .mode(cmp_mode)
+    );
+
+    muldiv muldiv (
+        .a(reg_s1),
+        .b(reg_s2),
+        .q(muldiv_q),
+        .mode(funct3)
     );
 
     // decide whether rs1 is selected from opcode_exec or overriden to 0
@@ -284,6 +295,9 @@ module cpu(
                     3'b01?: exec_out <= cmp_q;
                     default: exec_out <= alu_q;
                 endcase
+            end
+            7'b0110011: begin
+                exec_out <= muldiv_q;
             end
             default: begin
                 exec_out <= alu_q;

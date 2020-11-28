@@ -1,5 +1,5 @@
 module ram #(
-    parameter ADDR_WIDTH = 10,
+    parameter ADDR_WIDTH = 12,
     parameter DATA_WIDTH = 32
 ) (
     output wire [DATA_WIDTH-1:0] out,
