@@ -2,4 +2,8 @@
 *.vcd
 *.o
 *.log
+*.asc
+*.blif
+*.rpt
+*.json
 build/

@@ -132,7 +132,7 @@ module cpu(
     always @(*) begin
         case (opcode_exec)
             7'b0110111: begin
-                reg_s1sel <= 5'b00000;
+                reg_s1sel <= 5'd0;
             end
             default: begin
                 reg_s1sel <= rs1;
@@ -161,20 +161,21 @@ module cpu(
             7'b0110011: begin 
                 alu_a <= s1;
                 alu_b <= s2;
-                // TODO maybe optimize some of these if elses into bitshifts
-                // and masks, not sure how this all gets optimized
+                // TODO likely a critical path, so far this tests the fastest
                 if (funct3 == 3'b000) begin
-                    if (funct7[5]) begin
-                        alu_mode <= 3'b010;
-                    end else begin
-                        alu_mode <= funct3;
-                    end
+                    // if (funct7[5]) begin
+                    //     alu_mode <= 3'b010;
+                    // end else begin
+                    //     alu_mode <= funct3;
+                    // end
+                    alu_mode <= funct3 | {1'b0, funct7[5], 1'b0};
                 end else if (funct3 == 3'b101) begin
                     if (funct7[5]) begin
                         alu_mode <= 3'b011;
                     end else begin
                         alu_mode <= funct3;
                     end
+                    // alu_mode <= {~funct7[5], funct7[5], funct3[0]};
                 end else begin
                     alu_mode <= funct3;
                 end
@@ -189,6 +190,7 @@ module cpu(
                     end else begin
                         alu_mode <= funct3;
                     end
+                    // alu_mode <= {funct3[2:1] ^ {2{funct7[5]}}, funct3[0]};
                 end else begin
                     alu_mode <= funct3;
                 end
@@ -230,7 +232,9 @@ module cpu(
                 alu_mode <= 3'b000;
             end
             // JALR
-            7'b1100111: begin
+            // 7'b1100111
+            // default to ensure no latch generation
+            default: begin
                 alu_a <= s1;
                 alu_b <= immI;
                 alu_mode <= 3'b000;
@@ -243,14 +247,16 @@ module cpu(
         cmp_mode <= funct3;
         cmp_a <= s1;
         case (opcode_exec)
-            // branches and reg compares
-            7'b1100011, 7'b0110011: begin
-                cmp_b <= s2;
-            end
             // imm compares
             7'b0010011: begin
                 cmp_b <= immI;
             end
+            // branches and reg compares
+            // only 7'b1100011, 7'b0110011, default ensures no latch generates
+            default: begin
+                cmp_b <= s2;
+            end
+
         endcase
     end
 
@@ -317,11 +323,13 @@ module cpu(
                 reg_d <= dbus_read;
             end
             7'b1101111, 7'b1100111: begin
-                reg_wen <=1;
+                reg_wen <= 1;
                 // this will already have been incremented to the next instr
                 reg_d <= pc_exec;
             end
             default: begin
+                // need default reg_d output to avoid latch generation
+                reg_d <= exec_out;
                 reg_wen <= 0;
             end
         endcase
