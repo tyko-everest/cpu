@@ -8,26 +8,40 @@
 `include "rom.v"
 
 module cpu(
-    input wire clk,
+    input wire clk, interrupt,
     // data bus connections
     output reg [15:0] dbus_addr, 
     output reg [31:0] dbus_write,
     input wire [31:0] dbus_read,
-    output reg dbus_wen,
+    output reg dbus_wen, dbus_ren,
     // instruction bus connections
     output reg [15:0] ibus_addr,
     input wire [31:0] ibus_read
 );
 
-    localparam [31:0] NOP_INSTR = 32'h00000013;
+    localparam [31:0] NOP_INSTR = 32'h00000000;
 
-    // used to tell the pc whether to branch and if so where to
-    reg take_branch;
-    reg [31:0] branch_addr;
+    // TODO for now always direct to 0
+    localparam [31:0] mtvec = 32'h0;
+
+    // used to mark whether a jump or branch should be taken and where
+    reg branch_or_jump;
+    reg [31:0] branch_jump_addr;
+
+    // combines control flow changes from branches/jumps and traps
+    wire change_control;
+    reg [31:0] new_addr;
+
+    // these are used to break the flow from any stage in the pipeline
+    // this differentiation is needed as every stage before but not after
+    // must be flushed along with the pc change
+    reg break_fetch, break_decode, break_exec, break_wb;
+    reg break_fetch_latch;
+    reg [31:0] baddr_fetch, baddr_decode, baddr_exec, baddr_wb;
     
     // represent the flow of instruction data along the pipeline
     reg [31:0] ir_exec, ir_wb;
-    reg [31:0] pc_fetch, pc_exec;
+    reg [31:0] pc_fetch, pc_decode, pc_exec;
 
     // break up the instruction into its components for the exec and wb stages
     wire [6:0] opcode_exec, opcode_wb, funct7;
@@ -94,25 +108,88 @@ module cpu(
     );
 
 
-    /* FETCH */
+    assign change_control = break_fetch || break_decode || break_exec || break_wb;
+
+    always @(*) begin
+        if (interrupt) begin
+            new_addr <= {mtvec[31:2], 2'b00}; 
+        end else if (break_wb) begin
+            new_addr <= baddr_wb;
+        end else if (break_exec) begin
+            new_addr <= baddr_exec;
+        end else if (break_decode) begin
+            new_addr <= baddr_decode;
+        end else begin // if (break_fetch)
+            new_addr <= baddr_fetch;
+        end
+    end
+
+
+    /* FETCH
+     * - current pc_fetch is always fed into ibus_addr, so after clock
+     * - ibus_read will have the instruction ready
+     * - at the same time it either increments pc_fetch, or changes it
+     * to new one from branch/jump/vector table 
+     */
+
     // increment or branch
     always @(posedge clk) begin
-        if (take_branch) begin
-            pc_fetch <= branch_addr;
+        if (change_control) begin
+            pc_fetch <= branch_jump_addr;
         end else begin
             pc_fetch <= pc_fetch + 4;
         end
     end
 
-    // these are esentially just renamed internally
     always @(*) begin
-        ir_exec <= ibus_read;
         ibus_addr <= pc_fetch;
+    end
+
+    // TODO, just always set to never breaking from here, will need to later for interrupts
+    initial break_fetch = 0;
+    initial baddr_fetch = 0;
+
+    // can't stop the passing of rom into ir_exec directly
+    // so instead latch a value so break_decode won't pass on instruction twice
+    always @(posedge clk) begin
+        if (break_fetch || break_decode || break_exec || break_wb) begin
+            break_fetch_latch <= 1;
+        end else begin
+            break_fetch_latch <= 0;
+        end
+    end
+
+    // pass pc down pipeline
+    always @(posedge clk) begin
+        pc_decode <= pc_fetch;
+    end
+
+
+    /* DECODE
+     * - ibus connected to single cycle memory so ibus_read
+     * will always have the next instruction by now
+     * - need to decide whether to pass it on or whether flow is being
+     * changed by jump/branch or trap
+     */
+
+    // TODO exceptions not generated in this stage yet
+    initial break_decode = 0;
+    initial baddr_decode = 0;
+
+
+
+    // decide to pass down ir or flush pipeline
+    always @(posedge clk) begin
+        if (break_fetch_latch || break_decode || break_exec || break_wb) begin
+            ir_exec <= NOP_INSTR;
+        end else begin
+            ir_exec <= ibus_read;
+        end
     end
 
     // pass pc down the pipeline
     always @(posedge clk) begin
-        pc_exec <= pc_fetch;
+        pc_exec <= pc_decode;
     end
 
 
@@ -271,20 +348,21 @@ module cpu(
         endcase
     end
 
-    // decide if a branch or jump will be taken
+    // decide if a change of control needs to be taken
+    // from a branch or jump
     always @(*) begin
         case (opcode_exec)
             7'b1101111, 7'b1100111: begin
-                take_branch <= 1;
+                branch_or_jump <= 1;
             end
             7'b1100011: begin
-                take_branch <= cmp_q;
+                branch_or_jump <= cmp_q;
             end
             default: begin
-                take_branch <= 0;
+                branch_or_jump <= 0;
             end
         endcase
-        branch_addr <= alu_q;
+        branch_jump_addr <= alu_q; 
     end
 
     // decide what to clock into the buffer register
@@ -319,9 +397,25 @@ module cpu(
         endcase
     end
 
-    // pass instruction down pipeline
+    // decide to break flow whether from branch/jump or exception
+    always @(*) begin
+        // TODO add execption as if, then jumps in following else if
+        if (branch_or_jump) begin
+            break_exec <= 1;
+            baddr_exec <= branch_jump_addr;
+        end else begin
+            break_exec <= 0;
+            baddr_exec <= 0;
+        end
+    end
+
+    // decide to pass down ir or flush pipeline
     always @(posedge clk) begin
-        ir_wb <= ir_exec;
+        if (break_exec || break_wb) begin
+            ir_wb <= NOP_INSTR;
+        end else begin
+            ir_wb <= ir_exec;
+        end
     end
 
 
@@ -348,6 +442,10 @@ module cpu(
             end
         endcase
     end
+
+    // TODO exceptions not generated in this stage yet
+    initial break_wb = 0;
+    initial baddr_wb = 0;
 
 
 endmodule

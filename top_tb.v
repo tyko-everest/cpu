@@ -2,17 +2,23 @@
 
 module tb;
 
-    reg clk;
+    reg clk, int;
 
     top top (
-        .CLK(clk)
+        .CLK(clk),
+        .PIN_1(int)
     );
 
     initial begin
         $dumpfile("test.vcd");
         $dumpvars;
         clk = 0;
-        #80;
+        int = 0;
+        #15;
+        int = 0;
+        #2;
+        int = 0;
+        #12;
         $finish;
     end
 

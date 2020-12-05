@@ -3,7 +3,8 @@
 module top (
     input CLK,    // 16MHz clock
     output LED,   // User/boot LED next to power LED
-    output USBPU  // USB pull-up resistor
+    output USBPU,  // USB pull-up resistor
+    input PIN_1
 );
     // drive USB pull-up resistor to '0' to disable USB
     assign USBPU = 0;
@@ -14,11 +15,14 @@ module top (
 
     wire dbus_wen;
 
+    reg int;
+
     wire [15:0] ibus_addr, dbus_addr;
     wire [31:0] dbus_read, ibus_read, dbus_write;
 
     cpu cpu (
-        .clk(CLK),
+        .clk(clk),
+        .interrupt(PIN_1),
         .dbus_addr(dbus_addr),
         .dbus_read(dbus_read),
         .dbus_write(dbus_write),
