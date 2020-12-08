@@ -72,8 +72,7 @@ module cpu(
     // reg buses
     reg [31:0] reg_d;
     wire [31:0] reg_s1, reg_s2;
-    reg [4:0] reg_s1sel;
-    // rs2 selects always come straight from the machine code
+    // selects always come from the instruction
     reg reg_wen;
 
     initial pc_fetch = 0;
@@ -100,7 +99,7 @@ module cpu(
         .d(reg_d),
         .s1(reg_s1),
         .s2(reg_s2),
-        .s1sel(reg_s1sel),
+        .s1sel(rs1),
         .s2sel(rs2),
         .dsel(rd),
         .wen(reg_wen),
@@ -108,7 +107,7 @@ module cpu(
     );
 
 
-    assign change_control = break_fetch || break_decode || break_exec || break_wb;
+    assign change_control = interrupt || break_fetch || break_decode || break_exec || break_wb;
 
     always @(*) begin
         if (interrupt) begin
@@ -135,7 +134,7 @@ module cpu(
     // increment or branch
     always @(posedge clk) begin
         if (change_control) begin
-            pc_fetch <= branch_jump_addr;
+            pc_fetch <= new_addr;
         end else begin
             pc_fetch <= pc_fetch + 4;
         end
@@ -150,7 +149,8 @@ module cpu(
     initial baddr_fetch = 0;
 
     // can't stop the passing of rom into ir_exec directly
-    // so instead latch a value so break_decode won't pass on instruction twice
+    // so instead latch a value so break_decode won't pass on instruction
+    // on the next cycle
     always @(posedge clk) begin
         if (break_fetch || break_decode || break_exec || break_wb) begin
             break_fetch_latch <= 1;
@@ -175,8 +175,6 @@ module cpu(
     // TODO exceptions not generated in this stage yet
     initial break_decode = 0;
     initial baddr_decode = 0;
-
-
 
     // decide to pass down ir or flush pipeline
     always @(posedge clk) begin
@@ -214,19 +212,6 @@ module cpu(
         .q(muldiv_q),
         .mode(funct3)
     );
-
-    // decide whether rs1 is selected from opcode_exec or overriden to 0
-    // needed in LUI so imm directly passed through, i.e. adding to 0 
-    always @(*) begin
-        case (opcode_exec)
-            7'b0110111: begin
-                reg_s1sel <= 5'd0;
-            end
-            default: begin
-                reg_s1sel <= rs1;
-            end
-        endcase
-    end
 
     // decide if a bypass from the current write back stage is needed
     always @(*) begin
@@ -368,15 +353,22 @@ module cpu(
     // decide what to clock into the buffer register
     always @(posedge clk) begin
         casex (opcode_exec)
+            // ALU and CMP ops
             7'b0?10011: begin
                 casex (funct3)
                     3'b01?: exec_out <= cmp_q;
                     default: exec_out <= alu_q;
                 endcase
             end
+            // MULDIV extension
             7'b0110011: begin
                 exec_out <= muldiv_q;
             end
+            // LUI bypass
+            7'b0110111: begin
+                exec_out <= immU;
+            end
+            // every other supported instruction uses alu
             default: begin
                 exec_out <= alu_q;
             end

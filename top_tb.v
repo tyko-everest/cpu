@@ -15,7 +15,7 @@ module tb;
         clk = 0;
         int = 0;
         #15;
-        int = 0;
+        int = 1;
         #2;
         int = 0;
         #12;
