@@ -1,4 +1,5 @@
 module ram #(
+    // 4 KiB addressed in 4 byte words
     parameter ADDR_WIDTH = 12,
     parameter DATA_WIDTH = 32
 ) (
@@ -7,20 +8,19 @@ module ram #(
     input wire [ADDR_WIDTH-1:0] addr,
     input wire wen, clk
 );
-    // takes in 10 bit byte address, then ignores last two bits
-    // so treated like 8 bit word addressable memory
+
     reg [ADDR_WIDTH-1:0] raddr;
-    // 1 KiB of ram organized in 32 bit words
-    reg [DATA_WIDTH:0] mem [(1<<ADDR_WIDTH)-1:0];
+    // ADDR_WIDTH - 2 because address is for byte addressing, but actually defined as words
+    reg [DATA_WIDTH-1:0] mem [(1 << (ADDR_WIDTH - 2))-1:0];
 
     // TODO this always writes/reads addr word
     always @(posedge clk) begin
         if (wen) begin
-            mem[addr[9:2]] <= in;
+            mem[addr[ADDR_WIDTH-1:2]] <= in;
         end
         raddr <= addr;
     end
 
-    assign out = mem[raddr[9:2]];
+    assign out = mem[raddr[ADDR_WIDTH-1:2]];
 
 endmodule

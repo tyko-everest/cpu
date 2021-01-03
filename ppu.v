@@ -1,5 +1,8 @@
 module ppu (
-    input wire clk
+    input wire clk,
+    output reg [12:0] addr,
+    input wire [31:0] data,
+    output reg [15:0] colour
 );
 
     /* VRAM map
@@ -11,6 +14,9 @@ module ppu (
      * tile map 0   | 1K    | 0x1800 - 0x1BFF
      * tile map 1   | 1K    | 0x1C00 - 0x1FFF
      */
+
+    localparam VIEW_WIDTH = 160;
+    localparam VIEW_HEIGHT = 128;
 
     // TODO this needs to be selectable by user
     // select tile map 0 or 1
@@ -50,8 +56,39 @@ module ppu (
     // used to store the palette selection, upper or lower half of previous byte
     reg [3:0] palette_set_num;
 
-    // stores the final 16 bit colour for the selected pixel
-    reg [15:0] colour;
+    initial x_view = 0;
+    initial y_view = 0;
+
+    initial x_offset = 0;
+    initial y_offset = 0;
+
+    // stores what phase of memory collection we're in
+    reg [2:0] phase;
+    initial phase = 0;
+    always @(posedge clk) begin
+        phase = phase < 4 ? phase + 1 : 0;
+    end
+
+
+    // gets the requested byte from the actual word that was recieved on bus
+    reg [7:0] data_byte;
+    always @(*) begin
+        case (addr[1:0])
+            2'b00: data_byte <= data[7:0]; 
+            2'b01: data_byte <= data[15:8];
+            2'b10: data_byte <= data[23:16];
+            2'b11: data_byte <= data[31:24];
+        endcase
+    end
+
+    // gets the requested half word from the actual word on the bus
+    reg [15:0] data_hword;
+    always @(*) begin
+        case (addr[1])
+            1'b0: data_hword <= data[15:0]; 
+            1'b1: data_hword <= data[31:16];
+        endcase
+    end
 
 
     assign x = x_offset + x_view;
@@ -61,12 +98,6 @@ module ppu (
     // in C: (y / 8) * 32 + (x / 8)
     assign tile_map_index = {y[7:3], x[7:3]};
 
-    // get the byte in the tile map, this states which tile to use for this pixel
-    always @(posedge clk) begin
-        // selects either from 0x1800 or 0x1C00 in vram depending on which map is selected
-        tile_set_num <= vram[{2'b11, tile_map_select, tile_map_index}];
-    end
-
 
     // lower bits of coordinates give the pixel number within given tile
     assign pixel = {y[2:0], x[2:0]};
@@ -74,11 +105,6 @@ module ppu (
     assign pixel_byte = pixel[5:1];
     // and then will need to decide whether high or low half
     assign pixel_half = pixel[0];
-
-    always @(posedge clk) begin
-        // gets the byte in the tile set that holds the palette selection
-        palette_colour_byte <= vram[{tile_set_num, pixel_byte}];
-    end
 
     always @(*) begin
         // grab the top or bottom half as the final 4 bit palette colour
@@ -89,26 +115,55 @@ module ppu (
         end
     end
 
+    always @(negedge clk) begin
+        case (phase)
+            0: begin
+                // colour[15:8] <= data_byte;
+                $display("%H", colour);
+                // selects either from 0x1800 or 0x1C00 in vram depending on which map is selected
+                addr <= {2'b11, tile_map_select, tile_map_index};
+            end
+            1: begin
+                tile_set_num = data_byte;
+                // gets the byte in the tile set that holds the palette selection
+                addr = {tile_set_num, pixel_byte};
+            end
+            2: begin
+                palette_colour_byte <= data_byte;
+                // 9 MSB of the tile_map index get the byte that store the palette num
+                addr <= {4'b1011, tile_map_index[9:1]};
+            end
+            3: begin
+                palette_set_num_byte = data_byte;
+                // grab the top or bottom half as the final 4 bit palette selection
+                if (tile_map_index[0]) begin
+                    palette_set_num = palette_set_num_byte[7:4];
+                end else begin
+                    palette_set_num = palette_set_num_byte[3:0];
+                end
+                addr = {4'b1010, palette_set_num, palette_colour, 1'b0};
+            end
+            4: begin
+                $display(x, y);
+                colour[15:0] <= data_hword;
+                // addr <= {4'b1010, palette_set_num, palette_colour, 1'b1};
 
-    // 9 MSB of the tile_map index get the byte that store the palette num
+                if (x_view < VIEW_WIDTH - 1) begin
+                    x_view = x_view + 1;
+                end else begin
+                    x_view = 0;
+                    if (y_view < VIEW_HEIGHT - 1) begin
+                        y_view = y_view + 1;
+                    end else begin
+                        y_view = 0;
+                    end
+                end
+            end
+        endcase
+    end
+
     always @(posedge clk) begin
-        palette_set_num_byte <= vram[tile_map_index[9:1]];
+        
     end
 
-    // grab the top or bottom half as the final 4 bit palette selection
-    always @(*) begin
-        if (tile_map_index[0]) begin
-            palette_set_num <= palette_set_num_byte[7:4];
-        end else begin
-            palette_set_num <= palette_set_num_byte[3:0];
-        end
-    end
-
-
-    // finally grab the two two bytes that make up the colour
-    always @(posedge clk) begin
-        colour[7:0] <= vram[{4'b1010, palette_set_num, palette_colour, 1'b0}];
-        colour[15:8] <= vram[{4'b1010, palette_set_num, palette_colour, 1'b1}];
-    end
-    
 endmodule

@@ -12,5 +12,7 @@ with open("build/test.bin", "rb") as f:
     machine_code = f.read()
 
 with open("build/test.rom", "w") as f:
-    for b in range(0, len(machine_code)):
-        f.write("mem[{}] = 8'd{};\n".format(b, int(machine_code[b])))
+    i = 0
+    for b1, b2, b3, b4 in zip(*[iter(machine_code)]*4):
+        f.write("mem[{}] = 32'h{};\n".format(i, hex(b1 | b2 << 8 | b3 << 16 | b4 << 24)[2:]))
+        i += 1

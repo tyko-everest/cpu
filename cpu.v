@@ -4,8 +4,6 @@
 `include "cmp.v"
 `include "muldiv.v"
 `include "regfile.v"
-`include "ram.v"
-`include "rom.v"
 
 module cpu(
     input wire clk, interrupt,
