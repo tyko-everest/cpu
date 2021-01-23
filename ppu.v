@@ -18,6 +18,8 @@ module ppu (
     localparam VIEW_WIDTH = 160;
     localparam VIEW_HEIGHT = 128;
 
+    localparam NUM_SPRITES = 64;
+
     // TODO this needs to be selectable by user
     // select tile map 0 or 1
     reg tile_map_select;
@@ -61,14 +63,6 @@ module ppu (
 
     initial x_offset = 0;
     initial y_offset = 0;
-
-    // stores what phase of memory collection we're in
-    reg [2:0] phase;
-    initial phase = 0;
-    always @(posedge clk) begin
-        phase = phase < 4 ? phase + 1 : 0;
-    end
-
 
     // gets the requested byte from the actual word that was recieved on bus
     reg [7:0] data_byte;
@@ -115,55 +109,139 @@ module ppu (
         end
     end
 
+
+    // process of finding the first 8 sprites on the given line
+    reg [5:0] sprites [0:7];
+    reg [0:2] sprite_count;
+    initial sprite_count = 0;
+
+
+    reg [7:0] phase_row;
+    initial phase_row = 0;
+
+    reg [7:0] phase_col;
+    initial phase_col = 0;
+    
+    reg [3:0] phase_pixel;
+    initial phase_pixel = 0;
+    
+
+    reg phase_row_lock;
+    initial phase_row_lock = 0;
+
+    reg phase_col_lock;
+    initial phase_col_lock = 1;
+
+    reg phase_pixel_lock;
+    initial phase_pixel_lock = 1;
+
+
+    // go through each line of the image
     always @(negedge clk) begin
-        case (phase)
-            0: begin
-                // colour[15:8] <= data_byte;
-                $display("%H", colour);
-                // selects either from 0x1800 or 0x1C00 in vram depending on which map is selected
-                addr <= {2'b11, tile_map_select, tile_map_index};
-            end
-            1: begin
-                tile_set_num = data_byte;
-                // gets the byte in the tile set that holds the palette selection
-                addr = {tile_set_num, pixel_byte};
-            end
-            2: begin
-                palette_colour_byte <= data_byte;
-                // 9 MSB of the tile_map index get the byte that store the palette num
-                addr <= {4'b1011, tile_map_index[9:1]};
-            end
-            3: begin
-                palette_set_num_byte = data_byte;
-                // grab the top or bottom half as the final 4 bit palette selection
-                if (tile_map_index[0]) begin
-                    palette_set_num = palette_set_num_byte[7:4];
-                end else begin
-                    palette_set_num = palette_set_num_byte[3:0];
-                end
-                addr = {4'b1010, palette_set_num, palette_colour, 1'b0};
-            end
-            4: begin
-                $display(x, y);
-                colour[15:0] <= data_hword;
-                // addr <= {4'b1010, palette_set_num, palette_colour, 1'b1};
+        if (!phase_row_lock) begin
+            phase_row_lock = 1;
 
-                if (x_view < VIEW_WIDTH - 1) begin
-                    x_view = x_view + 1;
-                end else begin
-                    x_view = 0;
-                    if (y_view < VIEW_HEIGHT - 1) begin
-                        y_view = y_view + 1;
-                    end else begin
-                        y_view = 0;
+            if (phase_row < 128 - 1) begin
+                phase_row = phase_row + 1;
+                phase_col_lock = 0;
+            end else begin
+                phase_row = 0;
+            end
+
+        end
+    end
+
+
+    // go through the 64 sprites 
+    always @(negedge clk) begin
+        if (!phase_col_lock) begin
+            phase_col_lock = 1;
+
+            if (phase_col < 64 + 160 - 1) begin
+                phase_col = phase_col + 1;
+                phase_pixel_lock = 0;
+
+            end else begin
+                phase_col = 0;
+                phase_row_lock = 0;
+            end
+            
+        end
+    end
+
+
+    // process of getting colour for background picture given x and y
+    always @(negedge clk) begin
+        if (!phase_pixel_lock) begin
+
+            if (phase_pixel < 12 - 1) begin
+                phase_pixel = phase_pixel + 1;
+
+                case (phase_pixel)
+                    0: begin
+                        // colour[15:8] <= data_byte;
+                        $display("%H", colour);
+                        // selects either from 0x1800 or 0x1C00 in vram depending on which map is selected
+                        addr <= {2'b11, tile_map_select, tile_map_index};
                     end
-                end
+                    1: begin
+                        tile_set_num = data_byte;
+                        // gets the byte in the tile set that holds the palette selection
+                        addr = {tile_set_num, pixel_byte};
+                    end
+                    2: begin
+                        palette_colour_byte <= data_byte;
+                        // 9 MSB of the tile_map index get the byte that store the palette num
+                        addr <= {4'b1011, tile_map_index[9:1]};
+                    end
+                    3: begin
+                        palette_set_num_byte = data_byte;
+                        // grab the top or bottom half as the final 4 bit palette selection
+                        if (tile_map_index[0]) begin
+                            palette_set_num = palette_set_num_byte[7:4];
+                        end else begin
+                            palette_set_num = palette_set_num_byte[3:0];
+                        end
+                        addr = {4'b1010, palette_set_num, palette_colour, 1'b0};
+                    end
+                    4: begin
+                        $display(x, y);
+                        colour[15:0] <= data_hword;
+                        // addr <= {4'b1010, palette_set_num, palette_colour, 1'b1};
+
+                        if (x_view < VIEW_WIDTH - 1) begin
+                            x_view = x_view + 1;
+                        end else begin
+                            x_view = 0;
+                            if (y_view < VIEW_HEIGHT - 1) begin
+                                y_view = y_view + 1;
+                            end else begin
+                                y_view = 0;
+                            end
+                        end
+                    end
+                endcase
+
+            end else begin
+                phase_pixel = 0;
+                phase_pixel_lock = 1;
+                phase_col_lock = 0;
             end
-        endcase
+            
+            
+        end
     end
 
-    always @(posedge clk) begin
-        
-    end
+    /*
+    Plan for drawing sprites
+    - at start of each line scan through all sprites, and record first index to first 8 that are on this line
+    - at each pixel, go through 8 saved and try to find a match
+    - first match found is only one to be drawn
+    - check if this pixel of sprite is transparent or not
+    - if is, go through background pixel process
+    - if not, go through other memory accesses to get the 16 bit colour form the tile and palette
+
+    min clock speed = 128 px * 160 px * 60 fps * 12 mem accesses = 14.7 MHz
+    */
 
 endmodule
